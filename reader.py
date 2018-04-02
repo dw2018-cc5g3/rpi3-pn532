@@ -1,4 +1,19 @@
 """Interface code to read a CAN from a CEPAS card.
+
+Quick start:
+
+    import reader
+    can = reader.block_for_can()
+    print('Your CAN: {}'.format(can))
+
+block_for_can() accepts 1 optional argument to control whether spaces are 
+inserted (default is true):
+
+    import reader
+    can = reader.block_for_can(spaces=False)
+    insert_into_db(can, ...)
+
+You must install dependencies first (see README.md).
 """
 
 import nfc
@@ -14,9 +29,7 @@ _cmd_select_mf = bytes.fromhex('00 a4 00 00 02 3f 00 00')
 _cmd_select_ef = bytes.fromhex('00 a4 00 00 02 40 00 00')
 _cmd_read_purse = bytes.fromhex('90 32 03 00 00 3f')
 
-class NFCSession():
-    """Represents an NFC session between a reader device and an NFC tag.
-    """
+class NFCError(IOError):
     pass
 
 @contextmanager
@@ -37,11 +50,15 @@ def nfc_open(connstring=_connstring):
 
     device = nfc.open(ctx, connstring)
     if device is None:
-        raise IOError('Couldn\'t open NFC device')
+        raise NFCError('Couldn\'t open NFC device', {
+            'connstring': connstring
+        })
 
     try:
         if nfc.initiator_init(device) < 0:
-            raise IOError('Couldn\'t init NFC device')
+            raise NFCError('Couldn\'t init NFC device', {
+                'connstring': connstring
+            })
         
         print('Opened NFC reader device on {}'.format(
             nfc.device_get_name(device)
@@ -53,21 +70,26 @@ def nfc_open(connstring=_connstring):
         nfc.close(device)
         nfc.exit(ctx)
 
-def block_for_card(device, target_type=_target_type, nbr=_nbr):
+def block_for_card(device, target_type=None, nbr=None):
     """Block (wait) until a card is detected, then return its info.
     """
     modul = nfc.modulation()
-    modul.nmt = target_type
-    modul.nbr = nbr
+    modul.nmt = target_type if target_type is not None else _target_type
+    modul.nbr = nbr if nbr is not None else _nbr
     target = nfc.target()
 
-    print('Now waiting for a target.')
     # this blocks
     retval = nfc.initiator_select_passive_target(
         device, modul, 0, 0, target
     )
 
-    print('Got something. retval={}'.format(retval))
+    if not retval:
+        raise NFCError('Couldn\'t establish initial connection with card', {
+            'retval': retval,
+            'target_type': modul.nmt,
+            'nbr': modul.nbr
+        })
+
     return target
 
 def print_hex(bstr, pre=None, post=None):
@@ -91,19 +113,20 @@ def inspect_target(target):
     return target
 
 def transceive(device, transmit, timeout=1000):
-    """Transmit data to the tag, then receive a response. Waits until timeout (in ms) is reached
+    """Transmit data to the tag, then receive a response. Waits until timeout
+    (in ms) is reached
     """
     tx = bytes(transmit)
     tx_len = len(tx)
-    rx_len = 1024
-    retval, rx = nfc.initiator_transceive_bytes(device, tx, tx_len, rx_len, timeout)
-    # if retval != len(rx):
-    #     raise IOError('transceive: retval and rx length mismatch (error transceiving?)', {
-    #         'retval': retval,
-    #         'rx': rx
-    #     })
-    print('transceive: retval={}, len(rx)={}'.format(
-        retval, len(rx)))
+    rx_max_len = 256
+    rx_len, rx = nfc.initiator_transceive_bytes(
+        device, tx, tx_len, rx_max_len, timeout)
+
+    if rx_len < 0:
+        # failed
+        raise NFCError('initiator_transceive_bytes failed', {
+            'retval': rx_len
+            })
 
     return rx 
 
@@ -147,7 +170,19 @@ def block_for_can(spaces=True):
     return can
 
 def main():
-    print('Your CAN: {}'.format(block_for_can()))
+    print('Tap a CEPAS card...')
+    try:
+        print('Your CAN: {}'.format(block_for_can()))
+    except NFCError as e:
+        print('NFC error occurred!')
+        try:
+            if e.args[1].get('retval') == nfc.NFC_ERFTRANS:
+                print('RF transmission error. Did you remove ' \
+                    'the card too quickly?')
+        except IndexError:
+            pass
+        
+        print('repr: {}'.format(repr(e)))
 
 if __name__ == '__main__':
     main()
