@@ -112,36 +112,42 @@ def cepas_read_purse(device):
     """
     # select the master file
     rx = transceive(device, _cmd_select_mf)
-    print_hex(rx, pre='CEPAS: select_mf response: ')
 
     # select the elementary file
     rx = transceive(device, _cmd_select_ef)
-    print_hex(rx, pre='CEPAS: select_ef response: ')
 
     # read the purse
     rx = transceive(device, _cmd_read_purse)
-    print_hex(rx, pre='CEPAS: read_purse response: ')
-
+    
     return rx
 
-def cepas_extract_can(purse_data):
+def cepas_extract_can(purse_data, spaces=True):
     """Extract the CAN from the raw byte sequence of the purse data.
     """
     can_bytes_raw = purse_data[8:16]
     can_str_raw = hexlify(can_bytes_raw).decode('utf-8')
     assert len(can_str_raw) == 16
 
-    can_str = ' '.join(can_str_raw[i*4:(i+1)*4] for i in range(4))
-    return can_str
+    if spaces:
+        # split every 4 characters
+        return ' '.join(can_str_raw[i*4:(i+1)*4] for i in range(4))
+    else:
+        return can_str_raw
 
-def main():
+def block_for_can(spaces=True):
+    """Acquire the libnfc context, open the reader, wait for a suitable card,
+    extract a CAN, then finally close the reader and release the context. All
+    automatic!!! 
+    """
     with nfc_open() as device:
         # wait for a card to present
-        inspect_target(block_for_card(device))
-        
-        purse = cepas_read_purse(device)
-        can = cepas_extract_can(purse)
-        print('Your CAN: {}'.format(can))
+        block_for_card(device)
+        can = cepas_extract_can(cepas_read_purse(device), spaces)
+    
+    return can
+
+def main():
+    print('Your CAN: {}'.format(block_for_can()))
 
 if __name__ == '__main__':
     main()
