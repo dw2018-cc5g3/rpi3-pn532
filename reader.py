@@ -59,10 +59,6 @@ def nfc_open(connstring=_connstring):
             raise NFCError('Couldn\'t init NFC device', {
                 'connstring': connstring
             })
-        
-        print('Opened NFC reader device on {}'.format(
-            nfc.device_get_name(device)
-        ))
 
         yield device
     finally:
@@ -182,6 +178,7 @@ def main():
         except IndexError:
             pass
         
+        print()
         print('repr: {}'.format(repr(e)))
 
 if __name__ == '__main__':
