@@ -3,6 +3,7 @@
 
 import nfc
 from contextlib import contextmanager
+from binascii import hexlify
 
 _connstring = 'pn532_uart:/dev/ttyS0'
 _target_type = nfc.NMT_ISO14443B
@@ -96,11 +97,14 @@ def transceive(device, transmit, timeout=1000):
     tx_len = len(tx)
     rx_len = 1024
     retval, rx = nfc.initiator_transceive_bytes(device, tx, tx_len, rx_len, timeout)
-    if retval != len(rx):
-        raise IOError('transceive: retval and rx length mismatch (error transceiving?)', {
-            'retval': retval,
-            'rx': rx
-        })
+    # if retval != len(rx):
+    #     raise IOError('transceive: retval and rx length mismatch (error transceiving?)', {
+    #         'retval': retval,
+    #         'rx': rx
+    #     })
+    print('transceive: retval={}, len(rx)={}'.format(
+        retval, len(rx)))
+
     return rx 
 
 def cepas_read_purse(device):
@@ -120,11 +124,24 @@ def cepas_read_purse(device):
 
     return rx
 
+def cepas_extract_can(purse_data):
+    """Extract the CAN from the raw byte sequence of the purse data.
+    """
+    can_bytes_raw = purse_data[8:16]
+    can_str_raw = hexlify(can_bytes_raw).decode('utf-8')
+    assert len(can_str_raw) == 16
+
+    can_str = ' '.join(can_str_raw[i*4:(i+1)*4] for i in range(4))
+    return can_str
+
 def main():
     with nfc_open() as device:
-        target = inspect_target(block_for_card(device))
+        # wait for a card to present
+        inspect_target(block_for_card(device))
+        
         purse = cepas_read_purse(device)
-        # print_hex(rx, pre='CEPAS: read_purse response: ')
+        can = cepas_extract_can(purse)
+        print('Your CAN: {}'.format(can))
 
 if __name__ == '__main__':
     main()
